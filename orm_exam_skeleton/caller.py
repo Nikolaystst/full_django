@@ -5,8 +5,8 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "orm_skeleton.settings")
 django.setup()
 
-from django.db.models import Q, Count
-from main_app.models import Author
+from django.db.models import Q, Count, Avg
+from main_app.models import Author, Article
 
 
 # Import your models here
@@ -59,3 +59,53 @@ def get_top_reviewer():
         return f'Top Reviewer: {author.full_name} with {author.count_reviews} published reviews.'
     else:
         return ''
+
+
+def get_latest_article():
+    articles = (Article.objects.annotate(count_reviews=Count('reviews'), avg_rating=Avg('reviews__rating')).
+                order_by('published_on')).prefetch_related('authors', 'reviews')
+
+    if articles.exists():
+        article = articles.last()
+        authors = ', '.join(author.full_name for author in article.authors.all().order_by('full_name'))
+
+        return (f"The latest article is: {article.title}."
+                f" Authors: {authors}."
+                f" Reviewed: {article.count_reviews} times. Average Rating: {(article.avg_rating or 0):.2f}.")
+
+    else:
+        return ''
+
+
+def get_top_rated_article():
+    articles = (Article.objects.annotate(count_reviews=Count('reviews'), avg_rating=Avg('reviews__rating')).
+                filter(avg_rating__gt=0).order_by('-avg_rating', 'title')).prefetch_related('reviews')
+
+    if articles.exists():
+        article = articles.first()
+        return (f'The top-rated article is: {article.title},'
+                f' with an average rating of {article.avg_rating:.2f},'
+                f' reviewed {article.count_reviews} times.')
+
+    else:
+        return ''
+
+
+def ban_author(email=None):
+    if email is None:
+        return "No authors banned."
+
+    try:
+        author = Author.objects.prefetch_related('reviews').get(email__exact=email, is_banned=False)
+    except Author.DoesNotExist:
+        return "No authors banned."
+
+    num_reviews = author.reviews.count()
+
+    if author is not None:
+        author.is_banned = True
+        author.reviews.all().delete()
+        author.save()
+        return f"Author: {author.full_name} is banned! {num_reviews} reviews deleted."
+    else:
+        return "No authors banned."
